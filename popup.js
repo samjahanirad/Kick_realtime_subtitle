@@ -7,6 +7,7 @@ const DEFAULTS = {
   translate: false,
   fontSize: 22,
   bgOpacity: 0.55,
+  syncDelay: 4,
 };
 
 const els = {
@@ -16,6 +17,8 @@ const els = {
   language: document.getElementById('language'),
   translate: document.getElementById('translate'),
   translateRow: document.getElementById('translateRow'),
+  syncDelay: document.getElementById('syncDelay'),
+  syncVal: document.getElementById('syncVal'),
   fontSize: document.getElementById('fontSize'),
   bgOpacity: document.getElementById('bgOpacity'),
   toggle: document.getElementById('toggle'),
@@ -30,9 +33,11 @@ async function init() {
   els.model.value = s.model;
   els.language.value = s.language;
   els.translate.checked = s.translate;
+  els.syncDelay.value = s.syncDelay;
   els.fontSize.value = s.fontSize;
   els.bgOpacity.value = s.bgOpacity;
   updateEngineRows();
+  updateSyncLabel();
 
   const state = await chrome.runtime.sendMessage({ target: 'popup-cmd', type: 'get-state' });
   applyState(state);
@@ -43,6 +48,11 @@ function updateEngineRows() {
   const whisperish = els.engine.value !== 'webspeech';
   els.modelRow.style.display = whisperish ? '' : 'none';
   els.translateRow.style.display = whisperish ? '' : 'none';
+}
+
+function updateSyncLabel() {
+  const v = Number(els.syncDelay.value);
+  els.syncVal.textContent = v > 0 ? v + 's' : 'off';
 }
 
 function applyState(state) {
@@ -69,12 +79,13 @@ function saveSettings() {
     model: els.model.value,
     language: els.language.value,
     translate: els.translate.checked,
+    syncDelay: Number(els.syncDelay.value),
     fontSize: Number(els.fontSize.value),
     bgOpacity: Number(els.bgOpacity.value),
   });
 }
 
-for (const id of ['engine', 'model', 'language', 'translate', 'fontSize', 'bgOpacity']) {
+for (const id of ['engine', 'model', 'language', 'translate', 'syncDelay', 'fontSize', 'bgOpacity']) {
   els[id].addEventListener('change', () => {
     updateEngineRows();
     saveSettings();
@@ -83,6 +94,7 @@ for (const id of ['engine', 'model', 'language', 'translate', 'fontSize', 'bgOpa
 // Sliders save live so the overlay updates while dragging.
 els.fontSize.addEventListener('input', saveSettings);
 els.bgOpacity.addEventListener('input', saveSettings);
+els.syncDelay.addEventListener('input', updateSyncLabel);
 
 els.toggle.addEventListener('click', async () => {
   els.toggle.disabled = true;

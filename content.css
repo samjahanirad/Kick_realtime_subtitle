@@ -45,3 +45,14 @@
   opacity: 0.75;
   font-style: italic;
 }
+
+/* Delayed video view: covers the live <video>, clicks pass through to the
+   player controls. Revealed once the delay buffer has filled. */
+.kls-delay-canvas {
+  position: absolute;
+  pointer-events: none;
+  object-fit: contain;
+  background: #000;
+  opacity: 0;
+  transition: opacity 0.3s;
+}

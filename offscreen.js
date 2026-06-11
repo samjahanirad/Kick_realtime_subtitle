@@ -24,6 +24,8 @@ const state = {
   active: false,
   media: null,
   audioCtx: null,
+  delayNode: null,
+  delaySec: 0,
   worklet: null,
   engine: null, // 'whisper' | 'webspeech'
   settings: null,
@@ -33,10 +35,16 @@ const state = {
   // chunker
   blocks: [],
   bufLen: 0,
+  bufStartWall: 0, // Date.now() of the first sample in the buffer
   silenceRun: Infinity,
   hadVoice: false,
+  flushGen: 0,
   queue: [],
-  pumping: false,
+  // inference
+  inferTimer: null,
+  inferBusy: false,
+  lastInferMs: Infinity,
+  lastInterimAt: 0,
 };
 
 // ---------------------------------------------------------------- messaging
@@ -49,8 +57,11 @@ function sendStatus(status, detail, progress) {
   return send({ type: 'status', status, detail, progress });
 }
 
-function sendSubtitle(text, isFinal) {
-  return send({ type: 'subtitle', text, isFinal });
+// t0: wall-clock ms of when the transcribed audio started playing live.
+// The content script uses it to show the caption in sync with delayed video.
+// est marks t0 as a rough estimate (Web Speech gives no audio timestamps).
+function sendSubtitle(text, isFinal, t0, dur, est) {
+  return send({ type: 'subtitle', text, isFinal, t0, dur, est });
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -67,6 +78,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'stop') {
     stop();
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (msg.type === 'set-delay') {
+    // Video sync failed on the page: drop the audio delay so what the user
+    // hears matches the live video again.
+    state.delaySec = msg.seconds || 0;
+    if (state.delayNode) state.delayNode.delayTime.value = state.delaySec;
     sendResponse({ ok: true });
     return false;
   }
@@ -90,10 +109,22 @@ async function start(streamId, settings) {
     video: false,
   });
 
-  // Tab audio is muted while captured; play it back so the viewer still hears it.
+  // Tab audio is muted while captured; play it back so the viewer still hears
+  // it. With sync delay enabled, playback is delayed so it matches the delayed
+  // video on the page, while transcription below still reads the live audio.
   state.audioCtx = new AudioContext();
   const source = state.audioCtx.createMediaStreamSource(state.media);
-  source.connect(state.audioCtx.destination);
+  state.delaySec = Math.max(0, Math.min(10, Number(settings.syncDelay) || 0));
+  if (state.delaySec > 0) {
+    state.delayNode = new DelayNode(state.audioCtx, {
+      delayTime: state.delaySec,
+      maxDelayTime: 10,
+    });
+    source.connect(state.delayNode);
+    state.delayNode.connect(state.audioCtx.destination);
+  } else {
+    source.connect(state.audioCtx.destination);
+  }
 
   const engine = settings.engine || 'whisper';
   if (engine === 'webspeech' || engine === 'auto') {
@@ -120,6 +151,7 @@ async function start(streamId, settings) {
 
 function stop() {
   state.active = false;
+  stopInferLoop();
   if (state.recognition) {
     try { state.recognition.stop(); } catch (e) {}
     state.recognition = null;
@@ -132,15 +164,21 @@ function stop() {
     state.audioCtx.close().catch(() => {});
     state.audioCtx = null;
   }
+  state.delayNode = null;
   if (state.media) {
     for (const track of state.media.getTracks()) track.stop();
     state.media = null;
   }
   state.blocks = [];
   state.bufLen = 0;
+  state.bufStartWall = 0;
   state.silenceRun = Infinity;
   state.hadVoice = false;
+  state.flushGen = 0;
   state.queue = [];
+  state.inferBusy = false;
+  state.lastInferMs = Infinity;
+  state.lastInterimAt = 0;
 }
 
 // --------------------------------------------------- engine 1: Web Speech API
@@ -163,12 +201,14 @@ function startWebSpeech(settings, autoFallback) {
       const res = event.results[i];
       if (res.isFinal) {
         const text = res[0].transcript.trim();
-        if (text) sendSubtitle(text, true);
+        // Web Speech gives no audio timestamps; estimate when the words were
+        // spoken so sync-delayed display lines up roughly.
+        if (text) sendSubtitle(text, true, Date.now() - 1500, 2, true);
       } else {
         interim += res[0].transcript;
       }
     }
-    if (interim.trim()) sendSubtitle(interim.trim(), false);
+    if (interim.trim()) sendSubtitle(interim.trim(), false, Date.now() - 800, 1.5, true);
   };
 
   rec.onerror = (event) => {
@@ -247,6 +287,7 @@ async function startWhisper(source, settings) {
     onSamples(resampleTo16k(e.data, inRate));
   };
 
+  startInferLoop();
   sendStatus('live', 'Live (Whisper ' + (settings.model || 'base') + ')');
 }
 
@@ -297,15 +338,18 @@ async function loadTranscriber(settings) {
 }
 
 // Voice-activity based chunking: flush a chunk to the ASR queue when speech
-// is followed by ~0.5s of silence, or when 6s have accumulated.
+// is followed by ~0.45s of silence, or when 5s have accumulated.
 const CHUNK = {
   minSec: 1.0,
-  maxSec: 6.0,
-  silenceSec: 0.5,
+  maxSec: 5.0,
+  silenceSec: 0.45,
   rmsThreshold: 0.006,
 };
 
 function onSamples(f32) {
+  if (state.bufLen === 0) {
+    state.bufStartWall = Date.now() - (f32.length / SR16) * 1000;
+  }
   state.blocks.push(f32);
   state.bufLen += f32.length;
 
@@ -324,6 +368,7 @@ function onSamples(f32) {
     // pure silence/music bed - discard instead of transcribing
     state.blocks = [];
     state.bufLen = 0;
+    state.flushGen++; // invalidate any in-flight interim pass
     return;
   }
   if (
@@ -336,48 +381,95 @@ function onSamples(f32) {
 
 function flushChunk() {
   if (state.hadVoice && state.bufLen > 0) {
-    const chunk = new Float32Array(state.bufLen);
-    let off = 0;
-    for (const b of state.blocks) {
-      chunk.set(b, off);
-      off += b.length;
-    }
-    state.queue.push(chunk);
-    pump();
+    state.queue.push({
+      pcm: concatBlocks(state.blocks, state.bufLen),
+      t0: state.bufStartWall,
+      dur: state.bufLen / SR16,
+    });
   }
   state.blocks = [];
   state.bufLen = 0;
   state.silenceRun = Infinity;
   state.hadVoice = false;
+  state.flushGen++;
 }
 
-async function pump() {
-  if (state.pumping) return;
-  state.pumping = true;
+function concatBlocks(blocks, len) {
+  const out = new Float32Array(len);
+  let off = 0;
+  for (const b of blocks) {
+    out.set(b, off);
+    off += b.length;
+  }
+  return out;
+}
+
+// All Whisper inference is serialized through this loop. Finished chunks take
+// priority; when idle and the GPU is fast enough, the still-growing buffer is
+// transcribed as an interim (italic) caption for lower perceived latency.
+function startInferLoop() {
+  stopInferLoop();
+  state.inferTimer = setInterval(inferTick, 150);
+}
+
+function stopInferLoop() {
+  if (state.inferTimer) {
+    clearInterval(state.inferTimer);
+    state.inferTimer = null;
+  }
+}
+
+async function inferTick() {
+  if (state.inferBusy || !state.active || state.engine !== 'whisper') return;
+  state.inferBusy = true;
   try {
-    while (state.active && state.queue.length > 0) {
+    if (state.queue.length > 0) {
       // If transcription falls behind, drop the oldest chunks to stay live.
       while (state.queue.length > 2) state.queue.shift();
-      const chunk = state.queue.shift();
-      try {
-        const opts = {
-          task: state.settings.translate ? 'translate' : 'transcribe',
-        };
-        if (state.settings.language) opts.language = state.settings.language;
-        const out = await state.transcriber(chunk, opts);
-        const text = (out.text || '').trim();
-        if (state.active && text && !isJunk(text)) {
-          sendSubtitle(text, true);
-        }
-      } catch (e) {
-        console.error('transcription failed:', e);
-        sendStatus('error', 'Transcription failed: ' + (e.message || e));
-        return;
+      const job = state.queue.shift();
+      const text = await transcribe(job.pcm);
+      if (state.active && text && !isJunk(text)) {
+        sendSubtitle(text, true, job.t0, job.dur);
+      }
+    } else if (canInterim()) {
+      const gen = state.flushGen;
+      const t0 = state.bufStartWall;
+      const pcm = concatBlocks(state.blocks, state.bufLen);
+      state.lastInterimAt = Date.now();
+      const text = await transcribe(pcm);
+      // Discard if the buffer was flushed while we were transcribing: the
+      // final result for this audio is already on its way.
+      if (state.active && gen === state.flushGen && text && !isJunk(text)) {
+        sendSubtitle(text, false, t0, pcm.length / SR16);
       }
     }
+  } catch (e) {
+    console.error('transcription failed:', e);
+    sendStatus('error', 'Transcription failed: ' + (e.message || e));
+    stopInferLoop();
   } finally {
-    state.pumping = false;
+    state.inferBusy = false;
   }
+}
+
+function canInterim() {
+  return (
+    state.hadVoice &&
+    state.bufLen >= 1.3 * SR16 &&
+    Date.now() - state.lastInterimAt >= 1200 &&
+    state.lastInferMs < 900
+  );
+}
+
+async function transcribe(pcm) {
+  const opts = {
+    task: state.settings.translate ? 'translate' : 'transcribe',
+  };
+  if (state.settings.language) opts.language = state.settings.language;
+  const started = Date.now();
+  const out = await state.transcriber(pcm, opts);
+  state.lastInferMs = Date.now() - started;
+  return (out.text || '').trim();
 }
 
 // Whisper emits non-speech tags like "[Music]" or "(applause)" on noisy audio.

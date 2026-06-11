@@ -14,6 +14,7 @@ const SETTING_DEFAULTS = {
   translate: false,
   fontSize: 22,
   bgOpacity: 0.55,
+  syncDelay: 4, // seconds of A/V delay so captions appear in sync
 };
 
 async function ensureOffscreen() {
@@ -33,6 +34,12 @@ async function startCapture(tabId, streamId) {
   const settings = await chrome.storage.local.get(SETTING_DEFAULTS);
   session.tabId = tabId;
   setStatus('starting', 'Starting capture…');
+  // Kick off the delayed-video pipeline on the page right away so it buffers
+  // in step with the (immediately started) delayed audio in the offscreen doc.
+  const delay = Math.max(0, Math.min(10, Number(settings.syncDelay) || 0));
+  if (delay > 0) {
+    sendToTab(tabId, { type: 'kls-sync', delay });
+  }
   await chrome.runtime.sendMessage({
     target: 'offscreen',
     type: 'start',
@@ -87,8 +94,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           type: 'kls-subtitle',
           text: msg.text,
           isFinal: msg.isFinal,
+          t0: msg.t0,
+          dur: msg.dur,
+          est: msg.est,
         });
       }
+      sendResponse({});
+    } else if (msg.type === 'sync-failed') {
+      // The page couldn't delay the video (no WebCodecs, codec error, ...).
+      // Drop the audio delay too so sound stays in sync with the live video.
+      chrome.runtime
+        .sendMessage({ target: 'offscreen', type: 'set-delay', seconds: 0 })
+        .catch(() => {});
       sendResponse({});
     } else if (msg.type === 'status') {
       setStatus(msg.status, msg.detail, msg.progress);

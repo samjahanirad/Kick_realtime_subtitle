@@ -33,9 +33,34 @@ with OpenAI's Whisper model (via [transformers.js](https://github.com/huggingfac
 | **Model** | Whisper size: *tiny* (fastest, weakest), *base* (good default), *small* (most accurate, needs a decent GPU for real-time). |
 | **Language** | *Auto detect* or force the stream's language. Forcing it improves accuracy. |
 | **Translate to English** | Whisper-only: translates any language into English subtitles. |
+| **Sync delay** | Shows the stream a few seconds late so captions appear exactly when words are spoken (default 4 s, 0 = off). See below. |
 | **Text size / Background** | Subtitle appearance; applies live. |
 
-Engine/model/language changes take effect the next time you press Start.
+Engine/model/language/sync changes take effect the next time you press Start.
+
+## A/V sync (the "Sync delay" setting)
+
+Transcription inherently takes a couple of seconds, so without compensation
+captions appear *after* the words are spoken. Pausing or delaying the player
+itself wouldn't help — the transcriber listens to the same playback, so its
+output would shift by the same amount.
+
+Instead, the extension transcribes the **live** audio and delays what you
+see and hear:
+
+- **Audio** — the capture passthrough runs through a `DelayNode`.
+- **Video** — the player's frames are captured (`captureStream`), encoded
+  with WebCodecs (H.264/VP8, hardware-accelerated), held in a small encoded
+  buffer (a few MB) for the delay duration, then decoded onto a canvas that
+  covers the live video. Player controls still work normally.
+- **Captions** — each transcribed chunk carries the wall-clock time its
+  audio played live; the overlay shows it exactly `delay` seconds later,
+  in step with the delayed video.
+
+With the default 4 s delay and Whisper finishing in ~2–4 s, captions land
+in sync with speech. The first few seconds after Start are quiet/black while
+the buffer fills. If WebCodecs isn't available the extension automatically
+falls back to live video with immediate (late) captions.
 
 ## How it works
 

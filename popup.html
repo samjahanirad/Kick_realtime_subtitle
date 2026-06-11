@@ -113,6 +113,11 @@
   </div>
 
   <div class="row">
+    <label for="syncDelay">Sync delay <span id="syncVal"></span></label>
+    <input type="range" id="syncDelay" min="0" max="10" step="0.5" />
+  </div>
+
+  <div class="row">
     <label for="fontSize">Text size</label>
     <input type="range" id="fontSize" min="14" max="42" step="1" />
   </div>
@@ -124,7 +129,7 @@
 
   <button id="toggle" disabled>Start subtitles</button>
   <div id="status"></div>
-  <div class="hint">Engine / model / language changes apply when subtitles are (re)started. Drag the subtitles to move them; double-click to reset.</div>
+  <div class="hint">Sync delay shows the stream a few seconds late so captions line up with speech (0 = off). Engine / model / language / sync changes apply when subtitles are (re)started. Drag the subtitles to move them; double-click to reset.</div>
 
   <script src="popup.js"></script>
 </body>
