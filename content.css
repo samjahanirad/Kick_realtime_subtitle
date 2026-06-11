@@ -1,0 +1,47 @@
+#kls-overlay {
+  --kls-font-size: 22px;
+  --kls-bg-alpha: 0.55;
+  position: fixed;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  max-width: min(72vw, 900px);
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, var(--kls-bg-alpha));
+  color: #fff;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: var(--kls-font-size);
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  cursor: grab;
+  user-select: none;
+  display: none;
+  pointer-events: auto;
+}
+
+#kls-overlay.kls-visible {
+  display: block;
+}
+
+#kls-overlay:active {
+  cursor: grabbing;
+}
+
+#kls-overlay .kls-status {
+  font-size: 0.65em;
+  color: #53fc18;
+  letter-spacing: 0.02em;
+}
+
+#kls-overlay .kls-status:empty,
+#kls-overlay .kls-line:empty {
+  display: none;
+}
+
+#kls-overlay .kls-interim {
+  opacity: 0.75;
+  font-style: italic;
+}

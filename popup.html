@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      width: 300px;
+      margin: 0;
+      padding: 14px;
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 13px;
+      background: #0f1114;
+      color: #eee;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      color: #53fc18;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 8px 0;
+      gap: 8px;
+    }
+    label { flex: 0 0 auto; color: #bbb; }
+    select, input[type="range"] {
+      flex: 1 1 auto;
+      min-width: 0;
+      background: #1c2026;
+      color: #eee;
+      border: 1px solid #2c323a;
+      border-radius: 6px;
+      padding: 4px 6px;
+    }
+    input[type="checkbox"] { accent-color: #53fc18; }
+    #toggle {
+      width: 100%;
+      margin-top: 10px;
+      padding: 9px 0;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #53fc18;
+      color: #07210a;
+    }
+    #toggle.stop { background: #e8463c; color: #fff; }
+    #toggle:disabled { opacity: 0.5; cursor: default; }
+    #status {
+      margin-top: 10px;
+      min-height: 16px;
+      font-size: 12px;
+      color: #9aa3ad;
+      word-wrap: break-word;
+    }
+    #status.error { color: #ff7a70; }
+    .hint { font-size: 11px; color: #6b7480; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <h1>Kick Live Subtitles</h1>
+
+  <div class="row">
+    <label for="engine">Engine</label>
+    <select id="engine">
+      <option value="whisper">Whisper (local AI)</option>
+      <option value="webspeech">Chrome built-in (fastest)</option>
+      <option value="auto">Auto</option>
+    </select>
+  </div>
+
+  <div class="row" id="modelRow">
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="tiny">Tiny (fastest)</option>
+      <option value="base">Base (balanced)</option>
+      <option value="small">Small (most accurate)</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="language">Language</label>
+    <select id="language">
+      <option value="">Auto detect</option>
+      <option value="en">English</option>
+      <option value="es">Spanish</option>
+      <option value="pt">Portuguese</option>
+      <option value="fr">French</option>
+      <option value="de">German</option>
+      <option value="it">Italian</option>
+      <option value="ru">Russian</option>
+      <option value="ja">Japanese</option>
+      <option value="ko">Korean</option>
+      <option value="zh">Chinese</option>
+      <option value="ar">Arabic</option>
+      <option value="hi">Hindi</option>
+      <option value="tr">Turkish</option>
+      <option value="pl">Polish</option>
+      <option value="nl">Dutch</option>
+      <option value="uk">Ukrainian</option>
+      <option value="vi">Vietnamese</option>
+      <option value="th">Thai</option>
+      <option value="id">Indonesian</option>
+    </select>
+  </div>
+
+  <div class="row" id="translateRow">
+    <label for="translate">Translate to English</label>
+    <input type="checkbox" id="translate" />
+  </div>
+
+  <div class="row">
+    <label for="fontSize">Text size</label>
+    <input type="range" id="fontSize" min="14" max="42" step="1" />
+  </div>
+
+  <div class="row">
+    <label for="bgOpacity">Background</label>
+    <input type="range" id="bgOpacity" min="0" max="0.9" step="0.05" />
+  </div>
+
+  <button id="toggle" disabled>Start subtitles</button>
+  <div id="status"></div>
+  <div class="hint">Engine / model / language changes apply when subtitles are (re)started. Drag the subtitles to move them; double-click to reset.</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

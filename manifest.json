@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Kick Live Subtitles",
+  "version": "1.0.0",
+  "description": "Real-time AI subtitles for Kick streams. Captures tab audio and transcribes it locally with Whisper - no API key needed.",
+  "minimum_chrome_version": "116",
+  "permissions": ["tabCapture", "offscreen", "storage", "activeTab"],
+  "host_permissions": [
+    "https://kick.com/*",
+    "https://*.kick.com/*",
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://*.hf.co/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Kick Live Subtitles"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://kick.com/*", "https://*.kick.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
